@@ -35,19 +35,43 @@ For the workshop, the functions will have the following signature:
     def encode_kv(timestamp: int, key: str, value: str) -> tuple[int, bytes]
     def decode_kv(data: bytes) -> tuple[int, str, str]
 """
+import struct
+
+BIG_ENDIAN = "big"
+INT_WIDTH_BYTES = 4
+ASCII_ENCODING = 'ascii'
+HEADER_SIZE = 12
+
+
+def int_to_bytes(the_int: int) -> bytes:
+    if the_int.bit_length() > 4 * 8:
+        raise struct.error("int was greater than 4 bytes")
+    return the_int.to_bytes(INT_WIDTH_BYTES, BIG_ENDIAN)
 
 
 def encode_header(timestamp: int, key_size: int, value_size: int) -> bytes:
-    raise NotImplementedError
+    return int_to_bytes(timestamp) + int_to_bytes(key_size) + int_to_bytes(value_size)
 
 
 def encode_kv(timestamp: int, key: str, value: str) -> tuple[int, bytes]:
-    raise NotImplementedError
+    encoded_key = key.encode(ASCII_ENCODING)
+    encoded_value = value.encode(ASCII_ENCODING)
+    header_bytes = encode_header(timestamp, len(encoded_key), len(encoded_value))
+    encoded = header_bytes + encoded_key + encoded_value
+    return len(encoded), encoded
 
 
 def decode_kv(data: bytes) -> tuple[int, str, str]:
-    raise NotImplementedError
+    timestamp, key_size, value_size = decode_header(data[0:HEADER_SIZE])
+
+    return timestamp, \
+           data[HEADER_SIZE:HEADER_SIZE + key_size].decode(ASCII_ENCODING), \
+           data[HEADER_SIZE + key_size:len(data)].decode(ASCII_ENCODING)
 
 
 def decode_header(data: bytes) -> tuple[int, int, int]:
-    raise NotImplementedError
+    timestamp = int.from_bytes(data[0:4], BIG_ENDIAN)
+    key_size = int.from_bytes(data[4:8], BIG_ENDIAN)
+    value_size = int.from_bytes(data[8:12], BIG_ENDIAN)
+
+    return timestamp, key_size, value_size
