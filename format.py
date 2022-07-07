@@ -49,6 +49,10 @@ def int_to_bytes(the_int: int) -> bytes:
     return the_int.to_bytes(INT_WIDTH_BYTES, BIG_ENDIAN)
 
 
+def bytes_to_string(string: bytes) -> str:
+    return string.decode(ASCII_ENCODING)
+
+
 def encode_header(timestamp: int, key_size: int, value_size: int) -> bytes:
     return int_to_bytes(timestamp) + int_to_bytes(key_size) + int_to_bytes(value_size)
 
@@ -65,8 +69,8 @@ def decode_kv(data: bytes) -> tuple[int, str, str]:
     timestamp, key_size, value_size = decode_header(data[0:HEADER_SIZE])
 
     return timestamp, \
-           data[HEADER_SIZE:HEADER_SIZE + key_size].decode(ASCII_ENCODING), \
-           data[HEADER_SIZE + key_size:len(data)].decode(ASCII_ENCODING)
+           bytes_to_string(data[HEADER_SIZE:HEADER_SIZE + key_size]), \
+           bytes_to_string(data[HEADER_SIZE + key_size:len(data)])
 
 
 def decode_header(data: bytes) -> tuple[int, int, int]:

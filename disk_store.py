@@ -22,7 +22,9 @@ Typical usage example:
 import os.path
 import time
 import typing
+from dataclasses import dataclass
 
+import format
 from format import encode_kv, decode_kv, decode_header
 
 
@@ -52,10 +54,22 @@ from format import encode_kv, decode_kv, decode_header
 #
 # Read the paper for more details: https://riak.com/assets/bitcask-intro.pdf
 
+@dataclass
+class Entry:
+    file_name: str
+    value_size: int
+    value_position: int
+    timestamp: int
+
+
+END_OF_FILE_POSITION = 2
+START_OF_FILE_POSITION = 0
+
 
 class DiskStorage:
     """
-    Implements the KV store on the disk
+    Implements the KV store on the disk. Single threaded support only. Only one instance of
+    this class should be used in a program
 
     Args:
         file_name (str): name of the file where all the data will be written. Just
@@ -64,19 +78,80 @@ class DiskStorage:
     """
 
     def __init__(self, file_name: str = "data.db"):
-        raise NotImplementedError
+        self.file_name = file_name
+        self.key_dir: typing.Dict[str, Entry] = {}
+        self.read_file = open(file_name, "rb")
+
+        self.__load_file_into_key_dir()
+
+        # use append mode to avoid truncating the file
+        self.write_file = open(file_name, "ab")
+        self.write_file.seek(0, END_OF_FILE_POSITION)
 
     def set(self, key: str, value: str) -> None:
-        raise NotImplementedError
+        current_time = int(time.time())
+        size, payload = format.encode_kv(current_time, key, value)
+        self.write_file.seek(0, END_OF_FILE_POSITION)
+        self.write_file.write(payload)
+        self.write_file.flush()
+        value_position = self.write_file.tell() - len(value)
+        if key in self.key_dir:
+            self.key_dir[key].value_position = value_position
+            self.key_dir[key].timestamp = current_time
+            self.key_dir[key].value_size = len(value)
+        else:
+            self.key_dir[key] = Entry(
+                file_name=self.file_name,
+                timestamp=current_time,
+                value_size=len(value),
+                value_position=value_position
+            )
 
     def get(self, key: str) -> str:
-        raise NotImplementedError
+        if key in self.key_dir:
+            entry = self.key_dir[key]
+            self.read_file.seek(entry.value_position, START_OF_FILE_POSITION)
+            return self.read_file.read(entry.value_size).decode(format.ASCII_ENCODING)
+
+        return ""
 
     def close(self) -> None:
-        raise NotImplementedError
+        self.write_file.flush()
+        self.write_file.close()
+        self.read_file.close()
 
     def __setitem__(self, key: str, value: str) -> None:
         return self.set(key, value)
 
     def __getitem__(self, item: str) -> str:
         return self.get(item)
+
+    def __load_file_into_key_dir(self):
+        # Go to the beginning of the file
+        self.read_file.seek(0, 0)
+        bytes_read: int = 0
+        while True:
+            header = self.read_file.read(format.HEADER_SIZE)
+            if not header:
+                return
+
+            if len(header) != 12:
+                raise Exception("Expected 12 byte header but got " + str(len(header)) + " bytes")
+
+            bytes_read += format.HEADER_SIZE
+
+            timestamp, key_size, value_size = decode_header(header)
+
+            key = self.read_file.read(key_size).decode(format.ASCII_ENCODING)
+            bytes_read += key_size
+            value_position = self.read_file.tell()
+
+            # We don't actually store the file in the keystore
+            _ = self.read_file.read(value_size)
+
+            self.key_dir[key] = Entry(
+                file_name=self.file_name,
+                timestamp=timestamp,
+                value_size=value_size,
+                value_position=value_position
+            )
